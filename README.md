@@ -68,12 +68,19 @@ It then behaves like a normal app: its own icon, no browser bar.
 
 ## Photographing your cards
 
-**Take 3 to 6 pictures, not one.** Each picture should cover a different part of
-the deck — about a dozen cards a shot. One photo of a whole Commander deck leaves
-each name a few pixels tall, and the reader gets nothing from it.
+**Two columns per picture.** Lay the cards in two overlapping columns, so only each
+name strip shows, and fill the frame with them. About 15 cards a column is 30 cards
+a picture, so a Commander deck is four pictures.
 
-Lay that part of the deck out so every name is readable — overlapping the cards so
-only the name strip shows is fine, and fits more in one shot. Press
+The column count is the thing that matters, because it sets how wide each card is in
+the photo and therefore how big its name is. Measured end to end on mock photos of
+this exact layout: two columns read 29 names of 34, three columns 30 of 36, four
+columns 25 of 36. The same photos through the previous version of the app read 1,
+11 and 11.
+
+**Use the original photo**, straight from the camera roll. A screenshot, or a picture
+that has been through a chat app, has already been shrunk to a fraction of its
+detail, and no amount of work at this end puts that back. Press
 **Read cards from photos**, and either take the pictures or choose several
 you have already taken; the app reads them one after another and puts everything
 into one list to tick off.

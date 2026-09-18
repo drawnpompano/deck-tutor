@@ -126,8 +126,8 @@ textarea{min-height:170px; resize:vertical; line-height:1.45; font-variant-numer
 .pick .was{color:var(--muted); font-size:12px}
 .unread{font-size:12.5px; color:var(--muted); margin-top:10px}
 .cmdr{margin-top:15px; padding-top:13px; border-top:1px solid var(--line); font-size:13.5px; color:var(--muted)}
-.cmdr select{margin-top:7px; width:100%; background:var(--panel); color:var(--text);
-  border:1px solid var(--line); border-radius:9px; padding:9px 10px;
+.cmdr select, .cmdr input[type=text]{margin-top:7px; width:100%; background:var(--panel); color:var(--text);
+  border:1px solid var(--line); border-radius:9px; padding:9px 10px; box-sizing:border-box;
   font-family:'Archivo',sans-serif; font-size:14.5px}
 
 /* ---- panels ---- */
@@ -241,7 +241,7 @@ footer a{color:var(--gold)}
     <button class="btn ghost" id="photoBtn">Read cards from photos</button>
     <input type="file" id="photo" accept="image/*" multiple hidden>
   </div>
-  <p class="hint">Photograph the deck a few cards at a time: <b>about 8 cards per picture</b>, overlapped so only each name shows, filling the frame. That was measured: 8 cards a picture and it read every name, 16 about two thirds, 32 almost none. A whole deck is therefore a lot of pictures &mdash; you can choose up to 20 at once, and reading them is slow, up to a minute each, because it happens inside your phone.</p>
+  <p class="hint">Lay the cards out in <b>two columns</b>, overlapped so only each name shows, and fill the frame with them &mdash; about 15 cards a column, so 30 cards a picture, and four pictures for a Commander deck. Two columns is the number that matters: at four columns each name is half the size and the reader loses most of them. Use the <b>original photo</b> from your camera roll, not a screenshot and not one that has been through a chat app, or the detail is already gone. You can choose up to 20 pictures at once, and reading is slow, a minute or two each, because it happens inside your phone.</p>
   <div id="photoOut"></div>
   <p class="hint">One card per line, like <code>1 Sol Ring</code> or <code>4x Lightning Bolt</code>. Set codes and numbers after the name are ignored, so exports from Moxfield, Archidekt or MTG Arena paste straight in.</p>
   <div id="deckOut" class="stack" style="margin-top:8px"></div>
@@ -459,6 +459,14 @@ function analyze(cards, deckEntries, commanders){
   else if (stats.total >= 55) stats.format = guessConstructed(cards);
   else stats.format = 'casual';
   if (commanders.length) stats.format = 'commander';
+  // In Commander the deck's colours are the commander's colour identity, full stop —
+  // not the union of whatever cards are in the list. That matters most when the list
+  // is incomplete: a half-scanned five-colour deck was coming out as two colours, and
+  // every suggestion after it was drawn from the wrong two.
+  if (commanders.length){
+    const cmd = cards.get(commanders[0]);
+    if (cmd && cmd.color_identity) stats.colors = new Set(cmd.color_identity);
+  }
   stats.legalTag = stats.format === 'casual' ? '' : 'legal:' + stats.format;
   return stats;
 }
@@ -898,22 +906,33 @@ function loadTesseract(){
   return tessLoading;
 }
 
-/** Get the picture into the shape the reader likes: big enough to read, high contrast.
-    A card name in a deck photo is tiny, so shrinking the picture throws away the very
-    thing we are trying to read. Measured on one photo of 31 stacked cards: shrunk to
-    2000px the reader found 11 names, at 3200px 16, and left alone 23. So the limit
-    here only exists to stop a vast picture exhausting the phone's memory. Stretching
-    a small picture up was tried too, and measured worse, since it adds no detail. */
-async function prepImage(file){
-  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => createImageBitmap(file));
+/** How tall a card name should be, in pixels, by the time the reader sees it.
+    Measured: the reader is at its best when a word is around 25 pixels tall, and
+    gets worse both below that and above it. One mock photo of two columns of cards
+    read 13 names at full size, where the name text came out 42 pixels tall, and 25
+    names once shrunk so the text landed near 25. Three columns went 26 to 28 the
+    same way. So the app now measures the text and picks the size to suit, rather
+    than always handing over the biggest picture it can. */
+const TARGET_TEXT = 25;
+const PROBE_LONG = 1600;         // the quick first look, small so it is fast
+const MIN_LONG = 1800, MAX_LONG = 4000;
+
+/** Decode the file once, so it can be drawn at more than one size without re-reading it. */
+function decodePhoto(file){
+  return createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => createImageBitmap(file));
+}
+
+/** Draw the picture at `long` pixels on its long edge, in grey with the contrast pushed
+    up, which is the shape the reader likes. Never enlarged: stretching a small picture
+    up was measured and adds no detail, only time. */
+function prepAt(bmp, long){
   const big = Math.max(bmp.width, bmp.height);
-  const scale = big > 4000 ? 4000 / big : 1;
+  const scale = Math.min(1, long / big);
   const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d', { willReadFrequently: true });
   ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(bmp, 0, 0, w, h);
-  try { bmp.close(); } catch (e) {}
   try {
     const img = ctx.getImageData(0, 0, w, h), px = img.data;
     for (let i = 0; i < px.length; i += 4){
@@ -924,6 +943,20 @@ async function prepImage(file){
     ctx.putImageData(img, 0, 0);
   } catch (e) { /* tainted canvas can't happen for a local file, but don't die over it */ }
   return cv;
+}
+
+/** From a reading of the small probe, how big should the real read be?
+    Returns 0 when the probe saw too little to judge, in which case use the full size. */
+function sizeFromProbe(data, probeLong){
+  const heights = (data.words || [])
+    .filter(x => x.confidence > 40 && /[A-Za-z]{3}/.test(x.text || ''))
+    .map(x => x.bbox.y1 - x.bbox.y0)
+    .filter(h => h >= 6 && h <= probeLong / 12)        // drop stray boxes the size of the page
+    .sort((a, b) => a - b);
+  if (heights.length < 8) return 0;                    // too little to go on
+  const median = heights[Math.floor(heights.length / 2)];
+  const want = probeLong * TARGET_TEXT / median;
+  return Math.max(MIN_LONG, Math.min(MAX_LONG, Math.round(want)));
 }
 
 /** Tidy one line of read text into something worth looking up. */
@@ -1011,12 +1044,14 @@ async function readPhotos(fileList){
         }
       }
     });
-    // Scattered text, not paragraphs: card names sit apart from each other on a table.
-    // Reading the same picture a second time as one block was measured and found to
-    // add nothing on photos like these, so it isn't worth the wait.
-    await worker.setParameters({ tessedit_pageseg_mode: '11' });
+    // Two different ways of looking at a page, because which one wins depends entirely
+    // on how the cards are laid out, and the app cannot know that in advance. Measured
+    // on mock photos: cards spread out in a grid went to the scattered-text setting
+    // (7 names against 2), while columns of cards stacked so only the name shows went
+    // the other way by a mile (26 names against 11). Running both and pooling what they
+    // find was at least as good as the better of the two in every case tried.
 
-    const seen = new Set(), candidates = [];
+    const seen = new Set(), candidates = [], tiny = [];
     /** Pull the usable lines out of a pass, skipping anything already seen. */
     const take = (data) => {
       for (const line of (data.lines || [])){
@@ -1032,11 +1067,27 @@ async function readPhotos(fileList){
 
     for (at.i = 0; at.i < files.length; at.i++){
       step('Sharpening the picture…' + which(), 5 + at.i * (68 / at.n));
-      let canvas;
-      try { canvas = await prepImage(files[at.i]); }
+      let bmp;
+      try { bmp = await decodePhoto(files[at.i]); }
       catch (e){ continue; }                             // a file that isn't really a picture
+      tiny.push(Math.max(bmp.width, bmp.height) < 1400);
 
-      take((await worker.recognize(canvas)).data);
+      // A quick small look first, to see how big the writing is in this picture.
+      let probe = prepAt(bmp, PROBE_LONG);
+      await worker.setParameters({ tessedit_pageseg_mode: '3' });
+      const probeData = (await worker.recognize(probe)).data;
+      take(probeData);                                   // whatever it already read is free
+      probe.width = probe.height = 0;
+      const long = sizeFromProbe(probeData, PROBE_LONG) || MAX_LONG;
+
+      step('Reading the card names…' + which(), 5 + at.i * (68 / at.n) + 20 / at.n);
+      const canvas = prepAt(bmp, long);
+      try { bmp.close(); } catch (e) {}
+      for (const mode of ['3', '11']){
+        await worker.setParameters({ tessedit_pageseg_mode: mode });
+        take((await worker.recognize(canvas)).data);
+        if (candidates.length >= MAX_CANDIDATES) break;
+      }
       canvas.width = canvas.height = 0;                  // let the phone have the memory back
       if (candidates.length >= MAX_CANDIDATES) break;
     }
@@ -1065,17 +1116,24 @@ async function readPhotos(fileList){
     }
 
     lastPicks = picks;
-    // A photo has no "Commander" heading on it, so ask rather than guess.
+    // A photo has no "Commander" heading on it, so ask rather than guess. Nothing is
+    // chosen for you: when only one legend was read the app used to take it as the
+    // commander, which is exactly how a half-read deck ended up with the wrong one —
+    // and the deck's colours with it. The commander may not have been read at all,
+    // so there is always a way to type it.
     const legends = picks.map((p, i) => ({ i, name: p.card.name }))
       .filter(l => { const c = picks[l.i].card;
         return /Legendary/.test(typeLine(c)) && /Creature|Planeswalker/.test(typeLine(c)); });
-    const cmdrAsk = legends.length ? `<div class="cmdr">
-        <label for="cmdrPick">Which of these is your commander?</label>
+    const cmdrAsk = `<div class="cmdr">
+        <label for="cmdrPick">Which card is your commander?</label>
         <select id="cmdrPick">
-          ${legends.length > 1 ? '<option value="">Choose one…</option>' : ''}
+          <option value="">Choose one…</option>
           ${legends.map(l => `<option value="${esc(l.name)}">${esc(l.name)}</option>`).join('')}
-          <option value="">Not a Commander deck</option>
-        </select></div>` : '';
+          <option value="__type">It isn't in this list &mdash; let me type it</option>
+          <option value="__none">Not a Commander deck</option>
+        </select>
+        <input type="text" id="cmdrType" placeholder="Your commander's name" hidden>
+        <div id="cmdrNote"></div></div>`;
     out.innerHTML = shell(
       `<b>Found ${picks.length} card${picks.length > 1 ? 's' : ''}${many ? ` across ${files.length} pictures` : ''}.</b> Untick anything it got wrong.
        <div class="picks">` +
@@ -1087,13 +1145,20 @@ async function readPhotos(fileList){
         </label>`).join('') +
       `</div>
        ${missed.length ? `<p class="unread">Couldn't place: ${esc(missed.slice(0, 6).join(', '))}${missed.length > 6 ? '…' : ''}</p>`  : ''}
-       ${picks.length < 5 ? `<p class="unread">That is fewer than a picture of a dozen cards should give. Zoom into one of your photos: if you can't read a card's name comfortably yourself, nor can the reader. Closer in, no glare on the card faces, camera straight on.</p>` : ''}
+       ${tiny.some(Boolean) ? `<p class="unread">${tiny.every(Boolean) ? 'Those pictures were' : 'At least one of those pictures was'} very small &mdash; under about 1.4 megapixels. That is what you get from a screenshot, or from a picture that has been sent through a chat app, and there is nowhere near enough detail in it for the names to be read. Send the original photo straight from your camera roll.</p>` : ''}
+       ${picks.length < 5 ? `<p class="unread">That is fewer than one good picture should give. Zoom into one of your photos: if you can't read a card's name comfortably yourself, nor can the reader. Two columns of cards per picture, filling the frame, camera straight on, no glare.</p>` : ''}
        ${cmdrAsk}
        <div class="row"><button class="btn" id="addPicks">Add to my decklist</button>
          <button class="btn ghost" id="anotherShot">Add more pictures</button></div>`
     );
     $('addPicks').addEventListener('click', addPicksToList);
     $('anotherShot').addEventListener('click', () => $('photo').click());
+    $('cmdrPick').addEventListener('change', (e) => {
+      const box = $('cmdrType');
+      box.hidden = e.target.value !== '__type';
+      if (!box.hidden) box.focus();
+      $('cmdrNote').innerHTML = '';
+    });
   } catch (err){
     if (worker) { try { await worker.terminate(); } catch (e) {} }
     out.innerHTML = `<p class="err">Couldn't read ${many ? 'those photos' : 'that photo'}: ${esc(err.message || 'unknown problem')}</p>`;
@@ -1101,11 +1166,24 @@ async function readPhotos(fileList){
 }
 
 /** Merge the ticked cards into the decklist box, bumping counts for repeats. */
-function addPicksToList(){
+async function addPicksToList(){
   const chosen = lastPicks.filter((p, i) => { const b = $('pk' + i); return b && b.checked; }).map(p => p.card.name);
   if (!chosen.length) return;
-  const sel = $('cmdrPick');
-  const commander = sel && sel.value && chosen.some(n => norm(n) === norm(sel.value)) ? sel.value : '';
+  const sel = $('cmdrPick'), note = $('cmdrNote');
+  let commander = '';
+  if (sel && sel.value === '__type'){
+    // Typed by hand, so check it is a real card before trusting it.
+    const typed = ($('cmdrType').value || '').trim();
+    if (!typed){ note.innerHTML = '<p class="err" style="margin:6px 0 0">Type your commander\'s name, or choose one from the list.</p>'; return; }
+    note.innerHTML = '<div class="loading" style="padding:4px 0"><span class="spin"></span>Checking that name…</div>';
+    const card = await fuzzyCard(typed).catch(() => null);
+    if (!card){ note.innerHTML = '<p class="err" style="margin:6px 0 0">No card by that name. Check the spelling and try again.</p>'; return; }
+    note.innerHTML = '';
+    commander = card.name;
+    if (!chosen.some(n => norm(n) === norm(commander))) chosen.push(commander);
+  } else if (sel && sel.value && sel.value !== '__none'){
+    commander = chosen.some(n => norm(n) === norm(sel.value)) ? sel.value : '';
+  }
   const box = $('decklist');
   let lines = box.value.split(/\r?\n/);
   const index = new Map();
