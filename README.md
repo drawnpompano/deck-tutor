@@ -4,9 +4,9 @@ A small phone-installable web app (a PWA) for Magic: The Gathering.
 
 **Two things it does**
 
-1. **Scan a deck** — paste a decklist, and it tells you what the deck is short on
-   (lands, ramp, card draw, removal, board wipes), suggests cards to add, and
-   names a card in your deck to cut for each one.
+1. **Scan a deck** — paste a decklist *or photograph your cards*, and it tells you
+   what the deck is short on (lands, ramp, card draw, removal, board wipes),
+   suggests cards to add, and names a card in your deck to cut for each one.
 2. **Find cards** — type something like *"enchantments that cause you to gain life"*
    and it turns that into a proper Scryfall search and shows the cards.
 
@@ -50,6 +50,26 @@ way is GitHub Pages:
    - **Android (Chrome):** menu → *Install app* / *Add to home screen*.
 
 It then behaves like a normal app: its own icon, no browser bar.
+
+## Photographing your cards
+
+Lay the cards out so every name is readable — overlapping them so only the name
+strip shows is fine, and fits more in one shot. Press **Read cards from a photo**,
+take the picture, and the app reads the names off it.
+
+It reads the text with [Tesseract](https://tesseract.projectnaptha.com/), which
+runs inside your phone rather than sending your photo anywhere. Tesseract gets
+most of each name but garbles the odd letter, so every line it finds is checked
+against Scryfall's fuzzy name search — "Lianowar Elve" comes back as Llanowar
+Elves, and nonsense finds nothing and is dropped. You then tick off anything it
+got wrong before the cards are added to your list.
+
+What helps: even light, no glare on the card faces, the camera straight on rather
+than at an angle, and filling the frame. A dozen or so cards per photo works
+better than forty; just take several photos and each one adds to the list.
+
+The first photo you take needs an internet connection, because the text reader
+downloads itself once (a few megabytes). After that it is cached.
 
 ## A note on the suggestions
 

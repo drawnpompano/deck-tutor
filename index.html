@@ -111,6 +111,19 @@ textarea{min-height:170px; resize:vertical; line-height:1.45; font-variant-numer
 .linkish{background:none;border:0;padding:0;color:var(--gold);cursor:pointer;
   font:inherit;font-size:13px;text-decoration:underline; text-underline-offset:2px}
 
+/* ---- photo scanning ---- */
+.photo-row{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px}
+.shot{display:flex; gap:14px; margin-top:16px; align-items:flex-start}
+.shot img{width:112px; border-radius:8px; border:1px solid var(--line); flex:0 0 auto}
+.shot .side{flex:1; min-width:0}
+.prog{height:6px; background:var(--panel-2); border-radius:99px; overflow:hidden; margin-top:9px}
+.prog i{display:block; height:100%; background:var(--gold); width:0%; transition:width .35s ease}
+.picks{margin-top:14px; display:flex; flex-direction:column; gap:9px}
+.pick{display:flex; gap:9px; align-items:baseline; font-size:14.5px}
+.pick input{margin:0; flex:0 0 auto; position:relative; top:2px}
+.pick .was{color:var(--muted); font-size:12px}
+.unread{font-size:12.5px; color:var(--muted); margin-top:10px}
+
 /* ---- panels ---- */
 .card{
   background:var(--panel); border:1px solid var(--line); border-radius:14px;
@@ -213,6 +226,12 @@ footer a{color:var(--gold)}
     <button class="btn ghost" id="sampleBtn">Load an example</button>
     <label class="check"><input type="checkbox" id="budget"> Budget picks only (under $8)</label>
   </div>
+  <div class="photo-row">
+    <button class="btn ghost" id="photoBtn">Read cards from a photo</button>
+    <input type="file" id="photo" accept="image/*" hidden>
+    <span class="hint" style="margin:0">Lay the cards out so every name is readable, then photograph them.</span>
+  </div>
+  <div id="photoOut"></div>
   <p class="hint">One card per line, like <code>1 Sol Ring</code> or <code>4x Lightning Bolt</code>. Set codes and numbers after the name are ignored, so exports from Moxfield, Archidekt or MTG Arena paste straight in.</p>
   <div id="deckOut" class="stack" style="margin-top:8px"></div>
 </section>
@@ -755,9 +774,205 @@ async function renderResults(query, out){
 }
 
 /* =====================================================================
-   7. Wiring
+   7. Reading card names off a photo
+   ---------------------------------------------------------------------
+   The text reader (Tesseract) gets most of each name but garbles some
+   letters, so every line it finds is checked against Scryfall's fuzzy
+   name search. "Lianowar Elve" comes back as Llanowar Elves; nonsense
+   finds nothing and is dropped.
+   ===================================================================== */
+const TESS_URL = 'https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js';
+let tessLoading = null;
+function loadTesseract(){
+  if (tessLoading) return tessLoading;
+  tessLoading = new Promise((resolve, reject) => {
+    const el = document.createElement('script');
+    el.src = TESS_URL;
+    el.onload = () => window.Tesseract ? resolve(window.Tesseract) : reject(new Error('load'));
+    el.onerror = () => reject(new Error('load'));
+    document.head.appendChild(el);
+  }).catch(err => { tessLoading = null; throw err; });
+  return tessLoading;
+}
+
+/** Shrink a big phone photo and raise the contrast — both help the reader. */
+async function prepImage(file){
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => createImageBitmap(file));
+  const scale = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+  const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
+  const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+  const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.drawImage(bmp, 0, 0, w, h);
+  try {
+    const img = ctx.getImageData(0, 0, w, h), px = img.data;
+    for (let i = 0; i < px.length; i += 4){
+      const g = 0.299 * px[i] + 0.587 * px[i+1] + 0.114 * px[i+2];
+      const v = Math.max(0, Math.min(255, (g - 128) * 1.35 + 128));
+      px[i] = px[i+1] = px[i+2] = v;
+    }
+    ctx.putImageData(img, 0, 0);
+  } catch (e) { /* tainted canvas can't happen for a local file, but don't die over it */ }
+  return cv;
+}
+
+/** Tidy one line of read text into something worth looking up. */
+function cleanLine(raw){
+  let t = String(raw || '').replace(/[‘’]/g, "'").replace(/[–—]/g, '-');
+  t = t.replace(/[|\[\]{}()<>_~*"#]/g, ' ').replace(/[^A-Za-z0-9',\-\/ .:]/g, ' ');
+  t = t.replace(/\s+/g, ' ').trim();
+  t = t.replace(/^[^A-Za-z]+/, '').replace(/[\s.:,;\-']+$/, '').trim();
+  t = t.replace(/\s+(?:[0-9][0-9wubrgcxWUBRGCX]*|[A-Za-z]{1,2})$/, '').trim();
+  return t;
+}
+function worthLookingUp(t){
+  return (t.match(/[A-Za-z]/g) || []).length >= 4 && t.length <= 60;
+}
+
+/** How close two names are, 0 to 1, forgiving a name that got cut short. */
+function closeness(a, b){
+  const A = a.toLowerCase().replace(/[^a-z]/g, ''), B = b.toLowerCase().replace(/[^a-z]/g, '');
+  if (!A || !B) return 0;
+  // Only forgive a cut-short name when there is enough of it to be sure:
+  // "Trostani" really is Trostani, Selesnya's Voice, but "Cult" is anyone's guess.
+  return A.length >= 8 ? Math.max(ratio(A, B), ratio(A, B.slice(0, A.length))) : ratio(A, B);
+}
+function ratio(a, b){
+  if (!a.length || !b.length) return 0;
+  const prev = new Array(b.length + 1);
+  for (let j = 0; j <= b.length; j++) prev[j] = j;
+  for (let i = 1; i <= a.length; i++){
+    let diag = prev[0]; prev[0] = i;
+    for (let j = 1; j <= b.length; j++){
+      const tmp = prev[j];
+      prev[j] = Math.min(prev[j] + 1, prev[j-1] + 1, diag + (a[i-1] === b[j-1] ? 0 : 1));
+      diag = tmp;
+    }
+  }
+  return 1 - prev[b.length] / Math.max(a.length, b.length);
+}
+
+/** Ask Scryfall which real card a garbled line is closest to. */
+async function fuzzyCard(name){
+  const data = await throttled(() => getJSON(API + '/cards/named?fuzzy=' + encodeURIComponent(name)));
+  return data && data.object === 'card' ? data : null;
+}
+
+let lastPicks = [];
+async function readPhoto(file){
+  const out = $('photoOut');
+  const url = URL.createObjectURL(file);
+  const shell = (body) => `<div class="shot"><img src="${url}" alt="Your photo"><div class="side">${body}</div></div>`;
+  const step = (msg, pct) => {
+    out.innerHTML = shell(`<div class="loading" style="padding:0"><span class="spin"></span>${esc(msg)}</div>
+      <div class="prog"><i style="width:${Math.round(pct)}%"></i></div>`);
+  };
+  step('Getting the text reader…', 4);
+
+  let Tess;
+  try { Tess = await loadTesseract(); }
+  catch (e){
+    out.innerHTML = `<p class="err">Couldn't load the text reader. It needs an internet connection the first time — check your signal and try again, or type the card names in by hand.</p>`;
+    return;
+  }
+
+  let worker;
+  try {
+    step('Sharpening the picture…', 10);
+    const canvas = await prepImage(file);
+
+    worker = await Tess.createWorker('eng', 1, {
+      logger: m => { if (m.status === 'recognizing text') step('Reading the card names…', 20 + m.progress * 55); }
+    });
+    await worker.setParameters({ tessedit_pageseg_mode: '11' });   // scattered text, not paragraphs
+    const { data } = await worker.recognize(canvas);
+    await worker.terminate(); worker = null;
+
+    const seen = new Set(), candidates = [];
+    for (const line of (data.lines || [])){
+      const t = cleanLine(line.text);
+      if (!worthLookingUp(t)) continue;
+      const key = t.toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      candidates.push(t);
+      if (candidates.length >= 70) break;
+    }
+    if (!candidates.length){
+      out.innerHTML = shell(`<p class="err" style="margin:0">No readable text in that photo. Try again in better light, closer in, with the cards straight on rather than at an angle.</p>`);
+      return;
+    }
+
+    const picks = [], missed = [];
+    for (let i = 0; i < candidates.length; i++){
+      step(`Matching names against the card database… (${i + 1} of ${candidates.length})`, 75 + (i / candidates.length) * 24);
+      let card = null;
+      try { card = await fuzzyCard(candidates[i]); } catch (e) { /* keep going */ }
+      if (card && closeness(candidates[i], card.name) >= 0.6){
+        if (!picks.some(p => norm(p.card.name) === norm(card.name))) picks.push({ card, read: candidates[i] });
+      } else {
+        missed.push(candidates[i]);
+      }
+    }
+
+    if (!picks.length){
+      out.innerHTML = shell(`<p class="err" style="margin:0">Text came through, but none of it matched a real card. A straighter, closer photo usually fixes it.</p>`);
+      return;
+    }
+
+    lastPicks = picks;
+    out.innerHTML = shell(
+      `<b>Found ${picks.length} card${picks.length > 1 ? 's' : ''}.</b> Untick anything it got wrong.
+       <div class="picks">` +
+      picks.map((p, i) => `<label class="pick">
+          <input type="checkbox" id="pk${i}" checked>
+          <span>${esc(p.card.name)}
+            ${norm(p.read) !== norm(p.card.name) ? `<span class="was">read as &ldquo;${esc(p.read)}&rdquo;</span>` : ''}
+          </span>
+        </label>`).join('') +
+      `</div>
+       ${missed.length ? `<p class="unread">Couldn't place: ${esc(missed.slice(0, 6).join(', '))}${missed.length > 6 ? '…' : ''}</p>` : ''}
+       <div class="row"><button class="btn" id="addPicks">Add to my decklist</button>
+         <button class="btn ghost" id="anotherShot">Photograph more cards</button></div>`
+    );
+    $('addPicks').addEventListener('click', addPicksToList);
+    $('anotherShot').addEventListener('click', () => $('photo').click());
+  } catch (err){
+    if (worker) { try { await worker.terminate(); } catch (e) {} }
+    out.innerHTML = `<p class="err">Couldn't read that photo: ${esc(err.message || 'unknown problem')}</p>`;
+  }
+}
+
+/** Merge the ticked cards into the decklist box, bumping counts for repeats. */
+function addPicksToList(){
+  const chosen = lastPicks.filter((p, i) => { const b = $('pk' + i); return b && b.checked; }).map(p => p.card.name);
+  if (!chosen.length) return;
+  const box = $('decklist');
+  const lines = box.value.split(/\r?\n/);
+  const index = new Map();
+  lines.forEach((line, i) => {
+    const m = line.match(/^\s*(\d+)?\s*[xX]?\s*(.+?)\s*$/);
+    if (m && m[2]) index.set(norm(m[2]), { i, qty: parseInt(m[1] || '1', 10) });
+  });
+  for (const name of chosen){
+    const hit = index.get(norm(name));
+    if (hit) lines[hit.i] = (hit.qty + 1) + ' ' + name;
+    else lines.push('1 ' + name);
+  }
+  box.value = lines.join('\n').replace(/^\n+/, '');
+  box.scrollTop = box.scrollHeight;
+  $('photoOut').innerHTML = `<p class="note">Added ${chosen.length} card${chosen.length > 1 ? 's' : ''} to the list below. Photograph more, or press <b>Scan deck</b> when the deck is complete.</p>`;
+}
+
+/* =====================================================================
+   8. Wiring
    ===================================================================== */
 $('analyzeBtn').addEventListener('click', runDeck);
+$('photoBtn').addEventListener('click', () => $('photo').click());
+$('photo').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0];
+  if (f) readPhoto(f);
+  e.target.value = '';           // let the same file be picked twice
+});
 $('findBtn').addEventListener('click', () => runFind());
 $('nlq').addEventListener('keydown', e => { if (e.key === 'Enter') runFind(); });
 $('ex1').addEventListener('click', () => runFind('cheap green creatures that ramp'));
