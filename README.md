@@ -85,6 +85,11 @@ against Scryfall's fuzzy name search — "Lianowar Elve" comes back as Llanowar
 Elves, and nonsense finds nothing and is dropped. You then tick off anything it
 got wrong before the cards are added to your list.
 
+If any of the cards it finds are legendary creatures or planeswalkers, it asks
+which one is your commander before adding them, and writes that into the list
+under a `Commander` heading. A photo carries no such heading of its own, and the
+advice for a Commander deck depends on knowing the commander.
+
 What helps: even light, no glare on the card faces, the camera straight on rather
 than at an angle, and filling the frame with that part of the deck.
 

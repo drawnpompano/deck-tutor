@@ -125,6 +125,10 @@ textarea{min-height:170px; resize:vertical; line-height:1.45; font-variant-numer
 .pick input{margin:0; flex:0 0 auto; position:relative; top:2px}
 .pick .was{color:var(--muted); font-size:12px}
 .unread{font-size:12.5px; color:var(--muted); margin-top:10px}
+.cmdr{margin-top:15px; padding-top:13px; border-top:1px solid var(--line); font-size:13.5px; color:var(--muted)}
+.cmdr select{margin-top:7px; width:100%; background:var(--panel); color:var(--text);
+  border:1px solid var(--line); border-radius:9px; padding:9px 10px;
+  font-family:'Archivo',sans-serif; font-size:14.5px}
 
 /* ---- panels ---- */
 .card{
@@ -894,19 +898,25 @@ function loadTesseract(){
   return tessLoading;
 }
 
-/** Shrink a big phone photo and raise the contrast — both help the reader. */
+/** Get the picture into the shape the reader likes: big enough to read, high contrast.
+    A card name in a deck photo is tiny, so shrinking the picture throws away the very
+    thing we are trying to read. Only very large pictures are brought down; stretching
+    a small one up was tried and measured worse, since it adds no detail. */
 async function prepImage(file){
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => createImageBitmap(file));
-  const scale = Math.min(1, 2000 / Math.max(bmp.width, bmp.height));
+  const big = Math.max(bmp.width, bmp.height);
+  const scale = big > 3200 ? 3200 / big : 1;
   const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d', { willReadFrequently: true });
+  ctx.imageSmoothingQuality = 'high';
   ctx.drawImage(bmp, 0, 0, w, h);
+  try { bmp.close(); } catch (e) {}
   try {
     const img = ctx.getImageData(0, 0, w, h), px = img.data;
     for (let i = 0; i < px.length; i += 4){
       const g = 0.299 * px[i] + 0.587 * px[i+1] + 0.114 * px[i+2];
-      const v = Math.max(0, Math.min(255, (g - 128) * 1.35 + 128));
+      const v = Math.max(0, Math.min(255, (g - 128) * 1.55 + 128));
       px[i] = px[i+1] = px[i+2] = v;
     }
     ctx.putImageData(img, 0, 0);
@@ -924,8 +934,11 @@ function cleanLine(raw){
   return t;
 }
 function worthLookingUp(t){
-  return (t.match(/[A-Za-z]/g) || []).length >= 4 && t.length <= 60;
+  return (t.match(/[A-Za-z]/g) || []).length >= 5 && t.length <= 60;
 }
+// Scryfall's fuzzy search answers almost anything with *some* card, so the read has to
+// be a close match before we believe it. Loose matching is what puts wrong cards on screen.
+const SURE_ENOUGH = 0.72;
 
 /** How close two names are, 0 to 1, forgiving a name that got cut short. */
 function closeness(a, b){
@@ -996,15 +1009,14 @@ async function readPhotos(fileList){
         }
       }
     });
-    await worker.setParameters({ tessedit_pageseg_mode: '11' });   // scattered text, not paragraphs
+    // Scattered text, not paragraphs: card names sit apart from each other on a table.
+    // Reading the same picture a second time as one block was measured and found to
+    // add nothing on photos like these, so it isn't worth the wait.
+    await worker.setParameters({ tessedit_pageseg_mode: '11' });
 
     const seen = new Set(), candidates = [];
-    for (at.i = 0; at.i < files.length; at.i++){
-      step('Sharpening the picture…' + which(), 5 + at.i * (68 / at.n));
-      let canvas;
-      try { canvas = await prepImage(files[at.i]); }
-      catch (e){ continue; }                             // a file that isn't really a picture
-      const { data } = await worker.recognize(canvas);
+    /** Pull the usable lines out of a pass, skipping anything already seen. */
+    const take = (data) => {
       for (const line of (data.lines || [])){
         const t = cleanLine(line.text);
         if (!worthLookingUp(t)) continue;
@@ -1014,6 +1026,16 @@ async function readPhotos(fileList){
         candidates.push(t);
         if (candidates.length >= MAX_CANDIDATES) break;
       }
+    };
+
+    for (at.i = 0; at.i < files.length; at.i++){
+      step('Sharpening the picture…' + which(), 5 + at.i * (68 / at.n));
+      let canvas;
+      try { canvas = await prepImage(files[at.i]); }
+      catch (e){ continue; }                             // a file that isn't really a picture
+
+      take((await worker.recognize(canvas)).data);
+      canvas.width = canvas.height = 0;                  // let the phone have the memory back
       if (candidates.length >= MAX_CANDIDATES) break;
     }
     await worker.terminate(); worker = null;
@@ -1028,7 +1050,7 @@ async function readPhotos(fileList){
       step(`Matching names against the card database… (${i + 1} of ${candidates.length})`, 73 + (i / candidates.length) * 26);
       let card = null;
       try { card = await fuzzyCard(candidates[i]); } catch (e) { /* keep going */ }
-      if (card && closeness(candidates[i], card.name) >= 0.6){
+      if (card && closeness(candidates[i], card.name) >= SURE_ENOUGH){
         if (!picks.some(p => norm(p.card.name) === norm(card.name))) picks.push({ card, read: candidates[i] });
       } else {
         missed.push(candidates[i]);
@@ -1036,11 +1058,22 @@ async function readPhotos(fileList){
     }
 
     if (!picks.length){
-      out.innerHTML = shell(`<p class="err" style="margin:0">Text came through, but none of it matched a real card. Straighter, closer pictures usually fix it.</p>`);
+      out.innerHTML = shell(`<p class="err" style="margin:0">Text came through, but none of it was close enough to a real card name to trust. Zoom into one of your photos: if the names aren't crisp to you, the reader can't get them either. Closer in, a dozen cards a shot, no glare, camera straight on.</p>`);
       return;
     }
 
     lastPicks = picks;
+    // A photo has no "Commander" heading on it, so ask rather than guess.
+    const legends = picks.map((p, i) => ({ i, name: p.card.name }))
+      .filter(l => { const c = picks[l.i].card;
+        return /Legendary/.test(typeLine(c)) && /Creature|Planeswalker/.test(typeLine(c)); });
+    const cmdrAsk = legends.length ? `<div class="cmdr">
+        <label for="cmdrPick">Which of these is your commander?</label>
+        <select id="cmdrPick">
+          ${legends.length > 1 ? '<option value="">Choose one…</option>' : ''}
+          ${legends.map(l => `<option value="${esc(l.name)}">${esc(l.name)}</option>`).join('')}
+          <option value="">Not a Commander deck</option>
+        </select></div>` : '';
     out.innerHTML = shell(
       `<b>Found ${picks.length} card${picks.length > 1 ? 's' : ''}${many ? ` across ${files.length} pictures` : ''}.</b> Untick anything it got wrong.
        <div class="picks">` +
@@ -1051,7 +1084,9 @@ async function readPhotos(fileList){
           </span>
         </label>`).join('') +
       `</div>
-       ${missed.length ? `<p class="unread">Couldn't place: ${esc(missed.slice(0, 6).join(', '))}${missed.length > 6 ? '…' : ''}</p>` : ''}
+       ${missed.length ? `<p class="unread">Couldn't place: ${esc(missed.slice(0, 6).join(', '))}${missed.length > 6 ? '…' : ''}</p>`  : ''}
+       ${picks.length < 5 ? `<p class="unread">That is fewer than a picture of a dozen cards should give. Zoom into one of your photos: if you can't read a card's name comfortably yourself, nor can the reader. Closer in, no glare on the card faces, camera straight on.</p>` : ''}
+       ${cmdrAsk}
        <div class="row"><button class="btn" id="addPicks">Add to my decklist</button>
          <button class="btn ghost" id="anotherShot">Add more pictures</button></div>`
     );
@@ -1067,8 +1102,10 @@ async function readPhotos(fileList){
 function addPicksToList(){
   const chosen = lastPicks.filter((p, i) => { const b = $('pk' + i); return b && b.checked; }).map(p => p.card.name);
   if (!chosen.length) return;
+  const sel = $('cmdrPick');
+  const commander = sel && sel.value && chosen.some(n => norm(n) === norm(sel.value)) ? sel.value : '';
   const box = $('decklist');
-  const lines = box.value.split(/\r?\n/);
+  let lines = box.value.split(/\r?\n/);
   const index = new Map();
   lines.forEach((line, i) => {
     const m = line.match(/^\s*(\d+)?\s*[xX]?\s*(.+?)\s*$/);
@@ -1079,9 +1116,22 @@ function addPicksToList(){
     if (hit) lines[hit.i] = (hit.qty + 1) + ' ' + name;
     else lines.push('1 ' + name);
   }
+  if (commander) lines = withCommander(lines, commander);
   box.value = lines.join('\n').replace(/^\n+/, '');
-  box.scrollTop = box.scrollHeight;
-  $('photoOut').innerHTML = `<p class="note">Added ${chosen.length} card${chosen.length > 1 ? 's' : ''} to the list below. Photograph the next part of the deck, or press <b>Scan deck</b> when the whole deck is in the list.</p>`;
+  box.scrollTop = commander ? 0 : box.scrollHeight;
+  $('photoOut').innerHTML = `<p class="note">Added ${chosen.length} card${chosen.length > 1 ? 's' : ''} to the list below${commander ? `, with <b>${esc(commander)}</b> set as your commander` : ''}. Photograph the next part of the deck, or press <b>Scan deck</b> when the whole deck is in the list.</p>`;
+}
+
+/** Move the commander to the top under its own heading, where the scanner looks for it. */
+function withCommander(lines, name){
+  const rest = lines.filter(line => {
+    const t = line.trim();
+    if (!t) return false;
+    if (/^(commander|deck)\b[:\s]*$/i.test(t)) return false;      // headings get rewritten below
+    const m = t.match(/^\s*(\d+)?\s*[xX]?\s*(.+?)\s*$/);
+    return !(m && m[2] && norm(m[2]) === norm(name));              // the commander's own line
+  });
+  return ['Commander', '1 ' + name, '', 'Deck'].concat(rest);
 }
 
 /* =====================================================================
