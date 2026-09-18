@@ -68,9 +68,15 @@ It then behaves like a normal app: its own icon, no browser bar.
 
 ## Photographing your cards
 
-Lay the cards out so every name is readable — overlapping them so only the name
-strip shows is fine, and fits more in one shot. Press **Read cards from a photo**,
-take the picture, and the app reads the names off it.
+**Take 3 to 6 pictures, not one.** Each picture should cover a different part of
+the deck — about a dozen cards a shot. One photo of a whole Commander deck leaves
+each name a few pixels tall, and the reader gets nothing from it.
+
+Lay that part of the deck out so every name is readable — overlapping the cards so
+only the name strip shows is fine, and fits more in one shot. Press
+**Read cards from photos**, and either take the pictures or choose several
+you have already taken; the app reads them one after another and puts everything
+into one list to tick off.
 
 It reads the text with [Tesseract](https://tesseract.projectnaptha.com/), which
 runs inside your phone rather than sending your photo anywhere. Tesseract gets
@@ -80,8 +86,7 @@ Elves, and nonsense finds nothing and is dropped. You then tick off anything it
 got wrong before the cards are added to your list.
 
 What helps: even light, no glare on the card faces, the camera straight on rather
-than at an angle, and filling the frame. A dozen or so cards per photo works
-better than forty; just take several photos and each one adds to the list.
+than at an angle, and filling the frame with that part of the deck.
 
 The first photo you take needs an internet connection, because the text reader
 downloads itself once (a few megabytes). After that it is cached.

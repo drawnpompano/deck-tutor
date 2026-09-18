@@ -114,7 +114,9 @@ textarea{min-height:170px; resize:vertical; line-height:1.45; font-variant-numer
 /* ---- photo scanning ---- */
 .photo-row{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-top:10px}
 .shot{display:flex; gap:14px; margin-top:16px; align-items:flex-start}
-.shot img{width:112px; border-radius:8px; border:1px solid var(--line); flex:0 0 auto}
+.shot .thumbs{flex:0 0 auto; width:112px; display:flex; flex-wrap:wrap; gap:6px}
+.shot .thumbs img{width:53px; border-radius:6px; border:1px solid var(--line); display:block}
+.shot .thumbs img:only-child{width:112px; border-radius:8px}
 .shot .side{flex:1; min-width:0}
 .prog{height:6px; background:var(--panel-2); border-radius:99px; overflow:hidden; margin-top:9px}
 .prog i{display:block; height:100%; background:var(--gold); width:0%; transition:width .35s ease}
@@ -232,10 +234,10 @@ footer a{color:var(--gold)}
     <label class="check"><input type="checkbox" id="budget"> Budget picks only (under $8)</label>
   </div>
   <div class="photo-row">
-    <button class="btn ghost" id="photoBtn">Read cards from a photo</button>
-    <input type="file" id="photo" accept="image/*" hidden>
-    <span class="hint" style="margin:0">Lay the cards out so every name is readable, then photograph them.</span>
+    <button class="btn ghost" id="photoBtn">Read cards from photos</button>
+    <input type="file" id="photo" accept="image/*" multiple hidden>
   </div>
+  <p class="hint">Take <b>3 to 6 pictures</b>, each one covering a different part of the deck &mdash; roughly a dozen cards a shot. One picture of the whole deck leaves the names too small to read. You can choose several pictures at once and the app reads them one after another.</p>
   <div id="photoOut"></div>
   <p class="hint">One card per line, like <code>1 Sol Ring</code> or <code>4x Lightning Bolt</code>. Set codes and numbers after the name are ignored, so exports from Moxfield, Archidekt or MTG Arena paste straight in.</p>
   <div id="deckOut" class="stack" style="margin-top:8px"></div>
@@ -955,15 +957,23 @@ async function fuzzyCard(name){
 }
 
 let lastPicks = [];
-async function readPhoto(file){
+const MAX_SHOTS = 12;            // more than anyone needs for one deck
+const MAX_CANDIDATES = 200;      // a cap on how many lookups one batch can cause
+
+async function readPhotos(fileList){
+  const files = Array.from(fileList || []).slice(0, MAX_SHOTS);
+  if (!files.length) return;
   const out = $('photoOut');
-  const url = URL.createObjectURL(file);
-  const shell = (body) => `<div class="shot"><img src="${url}" alt="Your photo"><div class="side">${body}</div></div>`;
+  const urls = files.map(f => URL.createObjectURL(f));
+  const many = files.length > 1;
+  const shell = (body) => `<div class="shot">
+      <div class="thumbs">${urls.map(u => `<img src="${u}" alt="One of your photos">`).join('')}</div>
+      <div class="side">${body}</div></div>`;
   const step = (msg, pct) => {
     out.innerHTML = shell(`<div class="loading" style="padding:0"><span class="spin"></span>${esc(msg)}</div>
       <div class="prog"><i style="width:${Math.round(pct)}%"></i></div>`);
   };
-  step('Getting the text reader…', 4);
+  step('Getting the text reader…', 3);
 
   let Tess;
   try { Tess = await loadTesseract(); }
@@ -972,36 +982,50 @@ async function readPhoto(file){
     return;
   }
 
+  // Which picture is being read right now, so the progress bar can say so.
+  const at = { i: 0, n: files.length };
+  const which = () => many ? ` (picture ${at.i + 1} of ${at.n})` : '';
+
   let worker;
   try {
-    step('Sharpening the picture…', 10);
-    const canvas = await prepImage(file);
-
     worker = await Tess.createWorker('eng', 1, {
-      logger: m => { if (m.status === 'recognizing text') step('Reading the card names…', 20 + m.progress * 55); }
+      logger: m => {
+        if (m.status === 'recognizing text'){
+          const slice = 68 / at.n;                       // the reading stage owns 5%–73%
+          step('Reading the card names…' + which(), 5 + at.i * slice + m.progress * slice);
+        }
+      }
     });
     await worker.setParameters({ tessedit_pageseg_mode: '11' });   // scattered text, not paragraphs
-    const { data } = await worker.recognize(canvas);
-    await worker.terminate(); worker = null;
 
     const seen = new Set(), candidates = [];
-    for (const line of (data.lines || [])){
-      const t = cleanLine(line.text);
-      if (!worthLookingUp(t)) continue;
-      const key = t.toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      candidates.push(t);
-      if (candidates.length >= 70) break;
+    for (at.i = 0; at.i < files.length; at.i++){
+      step('Sharpening the picture…' + which(), 5 + at.i * (68 / at.n));
+      let canvas;
+      try { canvas = await prepImage(files[at.i]); }
+      catch (e){ continue; }                             // a file that isn't really a picture
+      const { data } = await worker.recognize(canvas);
+      for (const line of (data.lines || [])){
+        const t = cleanLine(line.text);
+        if (!worthLookingUp(t)) continue;
+        const key = t.toLowerCase();
+        if (seen.has(key)) continue;                     // same name read twice, here or in an earlier shot
+        seen.add(key);
+        candidates.push(t);
+        if (candidates.length >= MAX_CANDIDATES) break;
+      }
+      if (candidates.length >= MAX_CANDIDATES) break;
     }
+    await worker.terminate(); worker = null;
+
     if (!candidates.length){
-      out.innerHTML = shell(`<p class="err" style="margin:0">No readable text in that photo. Try again in better light, closer in, with the cards straight on rather than at an angle.</p>`);
+      out.innerHTML = shell(`<p class="err" style="margin:0">No readable text in ${many ? 'those photos' : 'that photo'}. Try again in better light, closer in, with the cards straight on rather than at an angle — and a dozen or so cards a picture rather than the whole deck.</p>`);
       return;
     }
 
     const picks = [], missed = [];
     for (let i = 0; i < candidates.length; i++){
-      step(`Matching names against the card database… (${i + 1} of ${candidates.length})`, 75 + (i / candidates.length) * 24);
+      step(`Matching names against the card database… (${i + 1} of ${candidates.length})`, 73 + (i / candidates.length) * 26);
       let card = null;
       try { card = await fuzzyCard(candidates[i]); } catch (e) { /* keep going */ }
       if (card && closeness(candidates[i], card.name) >= 0.6){
@@ -1012,13 +1036,13 @@ async function readPhoto(file){
     }
 
     if (!picks.length){
-      out.innerHTML = shell(`<p class="err" style="margin:0">Text came through, but none of it matched a real card. A straighter, closer photo usually fixes it.</p>`);
+      out.innerHTML = shell(`<p class="err" style="margin:0">Text came through, but none of it matched a real card. Straighter, closer pictures usually fix it.</p>`);
       return;
     }
 
     lastPicks = picks;
     out.innerHTML = shell(
-      `<b>Found ${picks.length} card${picks.length > 1 ? 's' : ''}.</b> Untick anything it got wrong.
+      `<b>Found ${picks.length} card${picks.length > 1 ? 's' : ''}${many ? ` across ${files.length} pictures` : ''}.</b> Untick anything it got wrong.
        <div class="picks">` +
       picks.map((p, i) => `<label class="pick">
           <input type="checkbox" id="pk${i}" checked>
@@ -1029,13 +1053,13 @@ async function readPhoto(file){
       `</div>
        ${missed.length ? `<p class="unread">Couldn't place: ${esc(missed.slice(0, 6).join(', '))}${missed.length > 6 ? '…' : ''}</p>` : ''}
        <div class="row"><button class="btn" id="addPicks">Add to my decklist</button>
-         <button class="btn ghost" id="anotherShot">Photograph more cards</button></div>`
+         <button class="btn ghost" id="anotherShot">Add more pictures</button></div>`
     );
     $('addPicks').addEventListener('click', addPicksToList);
     $('anotherShot').addEventListener('click', () => $('photo').click());
   } catch (err){
     if (worker) { try { await worker.terminate(); } catch (e) {} }
-    out.innerHTML = `<p class="err">Couldn't read that photo: ${esc(err.message || 'unknown problem')}</p>`;
+    out.innerHTML = `<p class="err">Couldn't read ${many ? 'those photos' : 'that photo'}: ${esc(err.message || 'unknown problem')}</p>`;
   }
 }
 
@@ -1057,7 +1081,7 @@ function addPicksToList(){
   }
   box.value = lines.join('\n').replace(/^\n+/, '');
   box.scrollTop = box.scrollHeight;
-  $('photoOut').innerHTML = `<p class="note">Added ${chosen.length} card${chosen.length > 1 ? 's' : ''} to the list below. Photograph more, or press <b>Scan deck</b> when the deck is complete.</p>`;
+  $('photoOut').innerHTML = `<p class="note">Added ${chosen.length} card${chosen.length > 1 ? 's' : ''} to the list below. Photograph the next part of the deck, or press <b>Scan deck</b> when the whole deck is in the list.</p>`;
 }
 
 /* =====================================================================
@@ -1066,9 +1090,9 @@ function addPicksToList(){
 $('analyzeBtn').addEventListener('click', runDeck);
 $('photoBtn').addEventListener('click', () => $('photo').click());
 $('photo').addEventListener('change', e => {
-  const f = e.target.files && e.target.files[0];
-  if (f) readPhoto(f);
-  e.target.value = '';           // let the same file be picked twice
+  const files = e.target.files;
+  if (files && files.length) readPhotos(files);
+  e.target.value = '';           // let the same files be picked twice
 });
 $('findBtn').addEventListener('click', () => runFind());
 $('nlq').addEventListener('keydown', e => { if (e.key === 'Enter') runFind(); });
