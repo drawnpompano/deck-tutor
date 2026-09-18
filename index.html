@@ -241,7 +241,7 @@ footer a{color:var(--gold)}
     <button class="btn ghost" id="photoBtn">Read cards from photos</button>
     <input type="file" id="photo" accept="image/*" multiple hidden>
   </div>
-  <p class="hint">Take <b>3 to 6 pictures</b>, each one covering a different part of the deck &mdash; roughly a dozen cards a shot. One picture of the whole deck leaves the names too small to read. You can choose several pictures at once and the app reads them one after another.</p>
+  <p class="hint">Photograph the deck a few cards at a time: <b>about 8 cards per picture</b>, overlapped so only each name shows, filling the frame. That was measured: 8 cards a picture and it read every name, 16 about two thirds, 32 almost none. A whole deck is therefore a lot of pictures &mdash; you can choose up to 20 at once, and reading them is slow, up to a minute each, because it happens inside your phone.</p>
   <div id="photoOut"></div>
   <p class="hint">One card per line, like <code>1 Sol Ring</code> or <code>4x Lightning Bolt</code>. Set codes and numbers after the name are ignored, so exports from Moxfield, Archidekt or MTG Arena paste straight in.</p>
   <div id="deckOut" class="stack" style="margin-top:8px"></div>
@@ -900,12 +900,14 @@ function loadTesseract(){
 
 /** Get the picture into the shape the reader likes: big enough to read, high contrast.
     A card name in a deck photo is tiny, so shrinking the picture throws away the very
-    thing we are trying to read. Only very large pictures are brought down; stretching
-    a small one up was tried and measured worse, since it adds no detail. */
+    thing we are trying to read. Measured on one photo of 31 stacked cards: shrunk to
+    2000px the reader found 11 names, at 3200px 16, and left alone 23. So the limit
+    here only exists to stop a vast picture exhausting the phone's memory. Stretching
+    a small picture up was tried too, and measured worse, since it adds no detail. */
 async function prepImage(file){
   const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }).catch(() => createImageBitmap(file));
   const big = Math.max(bmp.width, bmp.height);
-  const scale = big > 3200 ? 3200 / big : 1;
+  const scale = big > 4000 ? 4000 / big : 1;
   const w = Math.max(1, Math.round(bmp.width * scale)), h = Math.max(1, Math.round(bmp.height * scale));
   const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
   const ctx = cv.getContext('2d', { willReadFrequently: true });
@@ -970,7 +972,7 @@ async function fuzzyCard(name){
 }
 
 let lastPicks = [];
-const MAX_SHOTS = 12;            // more than anyone needs for one deck
+const MAX_SHOTS = 20;            // a whole Commander deck at 8 cards a picture
 const MAX_CANDIDATES = 200;      // a cap on how many lookups one batch can cause
 
 async function readPhotos(fileList){
