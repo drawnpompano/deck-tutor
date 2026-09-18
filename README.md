@@ -10,8 +10,23 @@ A small phone-installable web app (a PWA) for Magic: The Gathering.
 2. **Find cards** — type something like *"enchantments that cause you to gain life"*
    and it turns that into a proper Scryfall search and shows the cards.
 
-All the card information comes live from [Scryfall](https://scryfall.com), the free
-public Magic card database. No account, no API key, nothing to pay for.
+## Where the information comes from
+
+- **[Scryfall](https://scryfall.com)** — card text, images, legality, and the prices it
+  collects from **TCGplayer** and **Cardmarket**. It also carries each card's
+  **EDHREC** popularity rank, which is what the suggestions are ordered by.
+- **[EDHREC](https://edhrec.com)** — for Commander decks the app also asks EDHREC
+  directly what other people run alongside your commander, and adds a section for it.
+  EDHREC is someone else's site rather than an API meant for this app, so if your
+  browser is refused, that one section quietly doesn't appear and everything else works.
+- **Per card**, every suggestion links out to Scryfall, EDHREC, Gatherer (the official
+  rules database), TCGplayer and MTGGoldfish, so you can read the wider discussion.
+
+A page like this can only fetch from sites that allow it. Most Magic sites don't, which
+is why the app leans on the two that do and links out to the rest rather than pretending
+to have read them.
+
+No account, no API key, nothing to pay for.
 
 ## The files
 

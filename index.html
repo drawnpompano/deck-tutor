@@ -165,6 +165,11 @@ h2.sec .n{color:var(--muted); font-size:14px; font-family:'Archivo',sans-serif; 
 }
 .cut .k{font-weight:600; letter-spacing:.05em; text-transform:uppercase; font-size:11px; color:var(--bad)}
 
+.srcs{display:flex; flex-wrap:wrap; gap:4px 10px; margin-top:7px}
+.srcs a{font-size:11.5px; letter-spacing:.03em; text-transform:uppercase;
+  color:var(--muted); text-decoration:none; border-bottom:1px solid var(--line)}
+.srcs a:hover{color:var(--gold); border-bottom-color:var(--gold-soft)}
+
 /* ---- search results ---- */
 .grid{display:grid; grid-template-columns:repeat(auto-fill,minmax(150px,1fr)); gap:14px}
 .res{display:flex; flex-direction:column; gap:7px}
@@ -249,7 +254,11 @@ footer a{color:var(--gold)}
 </section>
 
 <footer>
-  Card data from the <a href="https://scryfall.com" target="_blank" rel="noopener">Scryfall</a> API. Unofficial fan tool; not affiliated with or endorsed by Wizards of the Coast.
+  Card text, prices and popularity come from <a href="https://scryfall.com" target="_blank" rel="noopener">Scryfall</a>,
+  which gathers them from Gatherer, TCGplayer, Cardmarket and EDHREC. Commander suggestions also read
+  <a href="https://edhrec.com" target="_blank" rel="noopener">EDHREC</a> directly where it allows it.
+  Every card links out to those sites so you can read the wider discussion yourself.
+  Unofficial fan tool; not affiliated with or endorsed by Wizards of the Coast.
 </footer>
 </div>
 
@@ -511,11 +520,12 @@ function themeQueries(stats){
 }
 
 /* ---------- which of your own cards are the weakest links ---------- */
-function weakest(stats, cards, entries){
+function weakest(stats, cards, entries, commanderName){
   const seen = new Set(), list = [];
   for (const e of entries){
     const c = cards.get(norm(e.name));
     if (!c || isLand(c) || seen.has(norm(c.name))) continue;
+    if (commanderName && norm(c.name) === norm(commanderName)) continue;   // can't cut the commander
     seen.add(norm(c.name));
     const txt = oracle(c), mv = c.cmc || 0;
     let score = 0, reasons = [];
@@ -540,6 +550,50 @@ function weakest(stats, cards, entries){
   return list.sort((a,b) => b.score - a.score);
 }
 
+/* ---------------------------------------------------------------------
+   A second opinion: EDHREC, where Commander players publish their decks.
+   It is someone else's site rather than an API meant for us, so if the
+   browser is refused the section simply doesn't appear.
+   --------------------------------------------------------------------- */
+function edhrecSlug(name){
+  return String(name).toLowerCase().replace(/[\u2019']/g, '')
+    .replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '');
+}
+async function edhrecPicks(commanderName){
+  try {
+    const ctl = new AbortController();
+    const bail = setTimeout(() => ctl.abort(), 7000);
+    const res = await fetch('https://json.edhrec.com/pages/commanders/' + edhrecSlug(commanderName) + '.json',
+                            { signal: ctl.signal });
+    clearTimeout(bail);
+    if (!res.ok) return null;
+    const j = await res.json();
+    const lists = (j && j.container && j.container.json_dict && j.container.json_dict.cardlists) || [];
+    const picks = [];
+    for (const list of lists){
+      if (!/synerg|top cards|high|new /i.test(list.header || '')) continue;
+      for (const cv of (list.cardviews || [])){
+        if (cv && cv.name) picks.push({ name: cv.name, inclusion: cv.inclusion, synergy: cv.synergy });
+      }
+    }
+    return picks.length ? picks : null;
+  } catch (e) {
+    return null;                       // refused, offline, or a shape we don't know
+  }
+}
+/** Which card is the commander? The labelled one, else the first legend. */
+function commanderOf(cards, entries, commanders){
+  if (commanders.length){
+    const c = cards.get(commanders[0]);
+    if (c) return c;
+  }
+  for (const e of entries){
+    const c = cards.get(norm(e.name));
+    if (c && /Legendary/.test(typeLine(c)) && /Creature|Planeswalker/.test(typeLine(c))) return c;
+  }
+  return null;
+}
+
 /* =====================================================================
    5. Rendering the deck report
    ===================================================================== */
@@ -551,10 +605,27 @@ function pipsFor(colors){
 function scryLink(c){
   return c.scryfall_uri || ('https://scryfall.com/search?q=' + encodeURIComponent('!"' + c.name + '"'));
 }
+/** Where else to read about this card. Scryfall hands us the first two;
+ *  the rest are ordinary search links built from the card's name. */
+function sourceLinks(c){
+  const rel = c.related_uris || {}, buy = c.purchase_uris || {}, n = encodeURIComponent(c.name);
+  const out = [
+    ['EDHREC', rel.edhrec || ('https://edhrec.com/cards/' + edhrecSlug(c.name))],
+    ['Gatherer', rel.gatherer],
+    ['TCGplayer', buy.tcgplayer || ('https://www.tcgplayer.com/search/magic/product?q=' + n)],
+    ['MTGGoldfish', 'https://www.mtggoldfish.com/q?query_string=' + n],
+  ].filter(x => x[1]);
+  return `<div class="srcs">${out.map(([label, href]) =>
+    `<a href="${esc(href)}" target="_blank" rel="noopener">${label}</a>`).join('')}</div>`;
+}
 function cardLine(c){
-  const p = price(c);
+  const usd = price(c), eur = parseFloat((c.prices && c.prices.eur) || '0') || null;
+  const bits = [manaCost(c), typeLine(c)].filter(Boolean).map(esc);
+  if (usd) bits.push('$' + usd.toFixed(2));
+  if (eur) bits.push('&euro;' + eur.toFixed(2));
+  if (c.edhrec_rank) bits.push('EDHREC #' + c.edhrec_rank.toLocaleString());
   return `<div class="nm"><a href="${esc(scryLink(c))}" target="_blank" rel="noopener">${esc(c.name)}</a></div>
-   <div class="meta">${esc(manaCost(c))} &nbsp;·&nbsp; ${esc(typeLine(c))}${p ? ' &nbsp;·&nbsp; $' + p.toFixed(2) : ''}</div>`;
+   <div class="meta">${bits.join(' &nbsp;·&nbsp; ')}</div>`;
 }
 
 async function runDeck(){
@@ -575,6 +646,7 @@ async function runDeck(){
 
     out.innerHTML = '<div class="loading"><span class="spin"></span>Finding cards that fill the gaps…</div>';
 
+    const commander = stats.format === 'commander' ? commanderOf(found, entries, commanders) : null;
     const gaps = gapQueries(stats), themes = themeQueries(stats);
     const budget = budgetOnly ? ' usd<=8' : '';
     const buckets = [];
@@ -583,7 +655,27 @@ async function runDeck(){
       const picks = res.filter(c => !inDeck.has(norm(c.name)) && !/^Basic/.test(typeLine(c))).slice(0, g.need ? Math.max(3, g.need) : 4);
       if (picks.length) buckets.push({ ...g, picks });
     }
-    const cuts = weakest(stats, found, entries);
+    // A second opinion from EDHREC, for Commander decks that have one.
+    if (stats.format === 'commander'){
+      const cmd = commander;
+      if (cmd){
+        const picks = await edhrecPicks(cmd.name);
+        if (picks){
+          const fresh = picks.filter(p => !inDeck.has(norm(p.name))).slice(0, 8);
+          if (fresh.length){
+            const { found: extra } = await fetchByNames(fresh.map(p => p.name));
+            const cards = fresh.map(p => extra.get(norm(p.name))).filter(Boolean)
+              .filter(c => !budgetOnly || ((price(c) || 0) <= 8));
+            if (cards.length){
+              buckets.push({ label: 'What other ' + cmd.name.split(',')[0] + ' decks run',
+                             source: 'edhrec', count: cards.length, picks: cards.slice(0, 5) });
+            }
+          }
+        }
+      }
+    }
+
+    const cuts = weakest(stats, found, entries, commander && commander.name);
 
     /* ---- write the report ---- */
     let h = '';
@@ -609,7 +701,10 @@ async function runDeck(){
     }
     let cutIdx = 0;
     for (const b of buckets){
-      h += `<h2 class="sec">${esc(b.label)} <span class="n">${b.have !== undefined ? `you have ${b.have}, aim for ${b.want}` : `${b.count} cards already lean this way`}</span></h2>`;
+      const sub = b.source === 'edhrec' ? 'from EDHREC, where players publish their decks'
+                : b.have !== undefined ? `you have ${b.have}, aim for ${b.want}`
+                : `${b.count} cards already lean this way`;
+      h += `<h2 class="sec">${esc(b.label)} <span class="n">${esc(sub)}</span></h2>`;
       if (b.advice) h += `<p class="note" style="margin:-4px 0 10px">${esc(b.advice)}</p>`;
       h += '<div class="card">';
       for (const c of b.picks){
@@ -619,6 +714,7 @@ async function runDeck(){
           <div>
             ${cardLine(c)}
             <div class="why">${esc(firstSentence(oracle(c)))}</div>
+            ${sourceLinks(c)}
             ${cut ? `<div class="cut"><span class="k">Cut instead</span> &nbsp;<a href="${esc(scryLink(cut.card))}" target="_blank" rel="noopener">${esc(cut.card.name)}</a>${cut.reasons.length ? ' — ' + esc(cut.reasons.join(', ')) : ''}</div>` : ''}
           </div>
         </div>`;
@@ -766,6 +862,7 @@ async function renderResults(query, out){
         <div class="res">
           <a href="${esc(scryLink(c))}" target="_blank" rel="noopener"><img loading="lazy" src="${esc(img(c,'normal'))}" alt="${esc(c.name)}"></a>
           ${cardLine(c)}
+          ${sourceLinks(c)}
         </div>`).join('') + `</div>`;
     const r = $('rerun'); if (r) r.addEventListener('click', () => runRaw($('rawq').value));
   } catch (err){
