@@ -1,0 +1,16 @@
+{
+  "name": "Deck Tutor — Magic deck helper",
+  "short_name": "Deck Tutor",
+  "description": "Scan a Magic: The Gathering decklist for cards to add and cut, and search for cards in plain English.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#131117",
+  "theme_color": "#16141a",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
