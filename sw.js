@@ -1,7 +1,7 @@
 /* Deck Tutor service worker.
    Keeps the app shell available offline. Card lookups still need the
    internet, because they come live from Scryfall. */
-const CACHE = 'deck-tutor-v5';
+const CACHE = 'deck-tutor-v7';
 const SHELL = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', (e) => {

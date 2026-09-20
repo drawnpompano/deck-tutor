@@ -198,6 +198,31 @@ footer{margin-top:36px; padding-top:16px; border-top:1px solid var(--line);
   font-size:12px; color:var(--muted)}
 footer a{color:var(--gold)}
 .ver{display:inline-block; margin-top:8px; opacity:.6; font-size:11.5px; letter-spacing:.04em}
+
+/* ---- the three routes into a decklist ---- */
+.route{margin:14px 0; padding:13px 15px; border:1px solid var(--line); border-radius:12px;
+  background:var(--panel)}
+.routeline{margin:0 0 6px; font-size:13.5px; line-height:1.55}
+.routeline:last-child{margin-bottom:0}
+.routeline.muted{color:var(--muted); font-size:12.5px}
+.route .photo-row{margin:10px 0 0}
+.route .hint{margin-top:8px}
+
+/* ---- naming and saving a deck ---- */
+.saverow{display:flex; gap:9px; align-items:center; flex-wrap:wrap; margin-top:10px}
+.saverow input[type=text]{flex:1 1 200px; min-width:0; background:var(--panel); color:var(--text);
+  border:1px solid var(--line); border-radius:9px; padding:9px 11px; box-sizing:border-box;
+  font-family:'Archivo',sans-serif; font-size:14.5px}
+.savenote{font-size:12.5px; color:var(--muted)}
+
+/* ---- the saved deck list ---- */
+.deckcard{display:flex; gap:12px; align-items:center; padding:12px 14px; border:1px solid var(--line);
+  border-radius:12px; background:var(--panel); margin-bottom:9px}
+.deckcard .who{flex:1 1 auto; min-width:0}
+.deckcard .nm{font-weight:600; font-size:15px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.deckcard .meta{font-size:12.5px; color:var(--muted); margin-top:2px}
+.deckcard .btn{padding:7px 12px; font-size:13.5px}
+.empty{color:var(--muted); font-size:13.5px; padding:6px 0}
 @media (max-width:420px){
   h1{font-size:22px}
   .grid{grid-template-columns:repeat(auto-fill,minmax(130px,1fr))}
@@ -222,30 +247,65 @@ footer a{color:var(--gold)}
 
 <div class="tabs" role="tablist">
   <button class="tab" id="tab-deck" role="tab" aria-selected="true" aria-controls="panel-deck">Scan a deck</button>
+  <button class="tab" id="tab-saved" role="tab" aria-selected="false" aria-controls="panel-saved">My decks</button>
   <button class="tab" id="tab-find" role="tab" aria-selected="false" aria-controls="panel-find">Find cards</button>
 </div>
 
 <!-- ======================= DECK ======================= -->
 <section id="panel-deck" role="tabpanel" aria-labelledby="tab-deck">
-  <label class="lab" for="decklist">Paste your decklist</label>
+
+  <!-- Route 1: get a list from a proper scanner -->
+  <div class="route">
+    <p class="routeline"><b>Got a pile of cards and no list?</b> Scan them with
+      <a href="https://claude.ai/artifact/8MksLkDHfPR9U4w1moAVvC" target="_blank" rel="noopener">the camera scanner</a>,
+      then copy what it gives you and paste it below. It reads the card names, so cards
+      stacked with only their titles showing are fine.</p>
+    <p class="routeline muted">You don't have to. If you already have a list, or only want to
+      add a few cards, skip straight to the box below.</p>
+  </div>
+
+  <!-- Route 2: the list itself, which is what the app actually runs on -->
+  <label class="lab" for="decklist">Your decklist</label>
+  <p class="hint" style="margin:0 0 9px">One card per line, like <code>1 Sol Ring</code> or <code>4x Lightning Bolt</code>. Exports from Moxfield, Archidekt, MTG Arena, ManaBox or SortSwift paste straight in, as plain text or as the comma-separated file &mdash; set codes, collector numbers and foil marks are ignored.</p>
   <textarea id="decklist" spellcheck="false" placeholder="1 Sol Ring
 1 Arcane Signet
 10 Forest
 1 Llanowar Elves
 ..."></textarea>
+
+  <div class="saverow">
+    <input type="text" id="deckTitle" placeholder="Name this deck (optional)" autocomplete="off">
+    <button class="btn ghost" id="saveBtn">Save deck</button>
+    <span id="saveNote" class="savenote"></span>
+  </div>
+
   <div class="row">
     <button class="btn" id="analyzeBtn">Scan deck</button>
     <button class="btn ghost" id="sampleBtn">Load an example</button>
     <label class="check"><input type="checkbox" id="budget"> Budget picks only (under $8)</label>
   </div>
-  <div class="photo-row">
-    <button class="btn ghost" id="photoBtn">Read cards from photos</button>
-    <input type="file" id="photo" accept="image/*" multiple hidden>
+
+  <!-- Route 3: the fallback, honestly labelled -->
+  <div class="route">
+    <p class="routeline"><b>Or add a few cards from a photo.</b> Best for <b>1 to 15 cards</b>
+      you'd rather not type &mdash; it finds roughly half the names in a photograph, so it is
+      not the way to get a whole deck in.</p>
+    <div class="photo-row">
+      <button class="btn ghost" id="photoBtn">Read cards from photos</button>
+      <input type="file" id="photo" accept="image/*" multiple hidden>
+    </div>
+    <p class="hint">Use the <b>original photo</b> from your camera roll, not a screenshot and not one that has been through a chat app. Reading happens inside your phone and is slow, a minute or two a picture. You tick off what it got right before anything joins your list.</p>
+    <div id="photoOut"></div>
   </div>
-  <p class="hint">Lay the cards out in <b>two columns</b>, overlapped so only each name shows, and fill the frame with them &mdash; about 15 cards a column, so 30 cards a picture, and four pictures for a Commander deck. Two columns is the number that matters: at four columns each name is half the size and the reader loses most of them. Use the <b>original photo</b> from your camera roll, not a screenshot and not one that has been through a chat app, or the detail is already gone. You can choose up to 20 pictures at once, and reading is slow, a minute or two each, because it happens inside your phone.</p>
-  <div id="photoOut"></div>
-  <p class="hint">One card per line, like <code>1 Sol Ring</code> or <code>4x Lightning Bolt</code>. Set codes and numbers after the name are ignored, so exports from Moxfield, Archidekt or MTG Arena paste straight in.</p>
+
   <div id="deckOut" class="stack" style="margin-top:8px"></div>
+</section>
+
+<!-- ======================= SAVED ======================= -->
+<section id="panel-saved" role="tabpanel" aria-labelledby="tab-saved" hidden>
+  <label class="lab">Decks you've saved</label>
+  <p class="hint" style="margin:0 0 12px">Saved on this device only, in this browser. Nothing leaves your phone, and clearing your browsing data clears these too.</p>
+  <div id="savedOut"></div>
 </section>
 
 <!-- ======================= FIND ======================= -->
@@ -266,7 +326,7 @@ footer a{color:var(--gold)}
   <a href="https://edhrec.com" target="_blank" rel="noopener">EDHREC</a> directly where it allows it.
   Every card links out to those sites so you can read the wider discussion yourself.
   Unofficial fan tool; not affiliated with or endorsed by Wizards of the Coast.
-  <br><span class="ver">Version 5</span>
+  <br><span class="ver">Version 7</span>
 </footer>
 </div>
 
@@ -299,15 +359,128 @@ const uniq = (a) => [...new Set(a)];
 })();
 
 /* ---------- tabs ---------- */
+const TABS = ['deck', 'saved', 'find'];
 function showTab(which){
-  const deck = which === 'deck';
-  $('tab-deck').setAttribute('aria-selected', String(deck));
-  $('tab-find').setAttribute('aria-selected', String(!deck));
-  $('panel-deck').hidden = !deck;
-  $('panel-find').hidden = deck;
+  for (const t of TABS){
+    const on = t === which;
+    $('tab-' + t).setAttribute('aria-selected', String(on));
+    $('panel-' + t).hidden = !on;
+  }
+  if (which === 'saved') renderSaved();
 }
-$('tab-deck').addEventListener('click', () => showTab('deck'));
-$('tab-find').addEventListener('click', () => showTab('find'));
+for (const t of TABS) $('tab-' + t).addEventListener('click', () => showTab(t));
+
+/* =====================================================================
+   1b. Decks kept on this device
+   Everything lives in this browser's own storage. It never leaves the phone,
+   which also means it is gone if the browser's data is cleared — hence the
+   note on the tab. Every read is wrapped, because storage can be switched
+   off entirely in private browsing and throws rather than returning null.
+   ===================================================================== */
+const DRAFT_KEY = 'dt-draft', DECKS_KEY = 'dt-decks';
+
+function readStore(key, fallback){
+  try {
+    const raw = localStorage.getItem(key);
+    return raw ? JSON.parse(raw) : fallback;
+  } catch (e) { return fallback; }
+}
+function writeStore(key, value){
+  try { localStorage.setItem(key, JSON.stringify(value)); return true; }
+  catch (e) { return false; }                       // full, or storage disabled
+}
+
+const savedDecks = () => { const d = readStore(DECKS_KEY, []); return Array.isArray(d) ? d : []; };
+const countCards = (text) => parseDeck(text).entries.reduce((n, e) => n + e.qty, 0);
+
+/** Remember whatever is in the box, so closing the tab doesn't lose it.
+    Phones drop background tabs on their own, so this matters more than it sounds. */
+let draftTimer;
+function keepDraft(){
+  clearTimeout(draftTimer);
+  draftTimer = setTimeout(() => {
+    writeStore(DRAFT_KEY, { list: $('decklist').value, title: $('deckTitle').value });
+  }, 400);
+}
+function restoreDraft(){
+  const d = readStore(DRAFT_KEY, null);
+  if (d && typeof d.list === 'string' && !$('decklist').value){
+    $('decklist').value = d.list;
+    $('deckTitle').value = d.title || '';
+  }
+}
+
+function saveDeck(){
+  const list = $('decklist').value.trim(), note = $('saveNote');
+  if (!list){ note.textContent = 'Nothing to save yet.'; return; }
+  const title = ($('deckTitle').value || '').trim() || 'Untitled deck';
+  const decks = savedDecks();
+  // Saving again under the same name updates that deck rather than making a second copy.
+  const at = decks.findIndex(d => norm(d.title) === norm(title));
+  const entry = { id: at >= 0 ? decks[at].id : String(Date.now()), title, list, savedAt: Date.now() };
+  if (at >= 0) decks[at] = entry; else decks.unshift(entry);
+  if (!writeStore(DECKS_KEY, decks)){
+    note.textContent = "Couldn't save — this browser's storage is full or switched off.";
+    return;
+  }
+  $('deckTitle').value = title;
+  note.textContent = (at >= 0 ? 'Updated ' : 'Saved ') + '“' + title + '”.';
+  setTimeout(() => { note.textContent = ''; }, 4000);
+}
+
+function loadDeck(id){
+  const deck = savedDecks().find(d => d.id === id);
+  if (!deck) return;
+  $('decklist').value = deck.list;
+  $('deckTitle').value = deck.title;
+  keepDraft();
+  showTab('deck');
+  $('decklist').scrollTop = 0;
+}
+
+function deleteDeck(id){
+  writeStore(DECKS_KEY, savedDecks().filter(d => d.id !== id));
+  renderSaved();
+}
+
+/** How long ago, in words, because an exact timestamp tells you nothing useful. */
+function whenWords(ms){
+  const mins = Math.round((Date.now() - ms) / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + (mins === 1 ? ' minute ago' : ' minutes ago');
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return hrs + (hrs === 1 ? ' hour ago' : ' hours ago');
+  const days = Math.round(hrs / 24);
+  if (days < 30) return days + (days === 1 ? ' day ago' : ' days ago');
+  return new Date(ms).toLocaleDateString();
+}
+
+function renderSaved(){
+  const out = $('savedOut'), decks = savedDecks();
+  if (!decks.length){
+    out.innerHTML = '<p class="empty">No decks saved yet. Put a list in the box on the first tab, give it a name, and press <b>Save deck</b>.</p>';
+    return;
+  }
+  out.innerHTML = decks.slice().sort((a, b) => b.savedAt - a.savedAt).map(d => {
+    let n = 0;
+    try { n = countCards(d.list); } catch (e) {}
+    return `<div class="deckcard">
+      <div class="who">
+        <div class="nm">${esc(d.title)}</div>
+        <div class="meta">${n} card${n === 1 ? '' : 's'} &nbsp;·&nbsp; saved ${esc(whenWords(d.savedAt))}</div>
+      </div>
+      <button class="btn" data-load="${esc(d.id)}">Open</button>
+      <button class="btn ghost" data-del="${esc(d.id)}">Delete</button>
+    </div>`;
+  }).join('');
+  out.querySelectorAll('[data-load]').forEach(b =>
+    b.addEventListener('click', () => loadDeck(b.getAttribute('data-load'))));
+  out.querySelectorAll('[data-del]').forEach(b =>
+    b.addEventListener('click', () => {
+      const deck = savedDecks().find(d => d.id === b.getAttribute('data-del'));
+      if (deck && confirm('Delete “' + deck.title + '”? This cannot be undone.')) deleteDeck(deck.id);
+    }));
+}
 
 /* =====================================================================
    1. Scryfall access (politely rate-limited to ~8 requests/second)
@@ -369,9 +542,53 @@ const isLand = (c) => /\bLand\b/.test(typeLine(c));
    ===================================================================== */
 const SECTION = /^(deck|main ?deck|maybe ?board|sideboard|commander|companion|creatures?|lands?|spells?|artifacts?|enchantments?|instants?|sorceries|planeswalkers?)\b[:\s]*$/i;
 
+/** Split one line of a comma-separated file, respecting "quoted, fields" —
+    which matters here, because plenty of card names contain a comma. */
+function csvCells(line){
+  const out = []; let cell = '', quoted = false;
+  for (let i = 0; i < line.length; i++){
+    const c = line[i];
+    if (quoted){
+      if (c === '"'){ if (line[i+1] === '"'){ cell += '"'; i++; } else quoted = false; }
+      else cell += c;
+    }
+    else if (c === '"') quoted = true;
+    else if (c === ','){ out.push(cell); cell = ''; }
+    else cell += c;
+  }
+  out.push(cell);
+  return out.map(x => x.trim());
+}
+
+/** A collection exported from a scanning app such as ManaBox arrives as a
+    comma-separated file with a heading row rather than as a decklist. Read it by
+    its headings, because the column order isn't fixed. Returns null if this isn't
+    one, so an ordinary decklist falls through untouched — a line like
+    "1 Ragavan, Nimble Pilferer" has a comma in it but no heading called "name". */
+function parseCsvDeck(lines){
+  const head = csvCells(lines[0]).map(h => h.toLowerCase());
+  const nameAt = head.findIndex(h => h === 'name' || h === 'card name' || h === 'card');
+  if (nameAt < 0) return null;
+  const qtyAt = head.findIndex(h => /^(quantity|qty|count|amount)$/.test(h));
+  const entries = [];
+  for (let i = 1; i < lines.length; i++){
+    const cells = csvCells(lines[i]);
+    const name = (cells[nameAt] || '').trim();
+    if (!name) continue;
+    const qty = qtyAt >= 0 ? parseInt(cells[qtyAt], 10) : 1;
+    entries.push({ qty: qty > 0 ? qty : 1, name });
+  }
+  return entries.length ? entries : null;
+}
+
 function parseDeck(text){
   const entries = [], commanders = [];
   let section = 'main';
+  const rows = text.split(/\r?\n/).filter(l => l.trim());
+  if (rows.length > 1){
+    const csv = parseCsvDeck(rows);
+    if (csv) return { entries: csv, commanders: [] };
+  }
   for (let raw of text.split(/\r?\n/)){
     let line = raw.trim();
     if (!line || line.startsWith('//') || line.startsWith('#')) continue;
@@ -384,8 +601,8 @@ function parseDeck(text){
     if (!m) continue;
     let qty = parseInt(m[1] || '1', 10);
     let name = m[2]
-      .replace(/\s*\([A-Za-z0-9]{2,6}\)\s*[A-Za-z0-9\-★]*\s*$/, '')  // set code + collector no.
-      .replace(/\s*\*[^*]*\*\s*$/, '')                                // *F* foil markers
+      .replace(/\s*\*[^*]*\*\s*$/, '')                                // *F* foil markers, first:
+      .replace(/\s*\([A-Za-z0-9]{2,6}\)\s*[A-Za-z0-9\-★]*\s*$/, '')  // they sit after the set code
       .replace(/\s*<[^>]*>\s*/g, '')
       .replace(/^\d+\s+/, '')
       .trim();
@@ -1233,7 +1450,13 @@ $('ex2').addEventListener('click', () => runFind('black instants that destroy a 
 $('sampleBtn').addEventListener('click', () => {
   $('decklist').value = SAMPLE;
   $('decklist').scrollTop = 0;
+  keepDraft();
 });
+$('saveBtn').addEventListener('click', saveDeck);
+$('decklist').addEventListener('input', keepDraft);
+$('deckTitle').addEventListener('input', keepDraft);
+$('deckTitle').addEventListener('keydown', e => { if (e.key === 'Enter') saveDeck(); });
+restoreDraft();
 
 const SAMPLE = `Commander
 1 Trelasarra, Moon Dancer

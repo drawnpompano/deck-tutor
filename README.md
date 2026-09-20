@@ -66,42 +66,53 @@ way is GitHub Pages:
 
 It then behaves like a normal app: its own icon, no browser bar.
 
+## Getting your deck in
+
+The first tab shows three ways to do one thing: fill the decklist box. They are in order
+of how well they work.
+
+**1. Scan the cards with a camera scanner.** The link at the top opens a scanner that reads
+card *names*, so a pile stacked with only the titles showing works as it is. Copy what it
+gives you and paste it into the box.
+
+**2. Paste a list you already have.** This is the box everything else feeds. One card per
+line, like `1 Sol Ring` or `4x Lightning Bolt`. Exports from Moxfield, Archidekt, MTG Arena,
+ManaBox and SortSwift paste straight in, as plain text or as the comma-separated file —
+read by its heading row, so the column order doesn't matter. Set codes, collector numbers
+and foil marks are stripped.
+
+**3. Read a few cards from a photo.** The built-in reader, for **1 to 15 cards** you'd
+rather not type. It is a convenience, not a way to get a whole deck in: measured across
+four real photographs it recovers between 38% and 47% of the names, whatever the layout.
+
+## Naming and saving decks
+
+Give a deck a name and press **Save deck**, and it appears under **My decks**, with how many
+cards it holds and when you saved it. Saving again under the same name updates that deck
+rather than making a second copy. Whatever is in the box is also kept as you type, so
+closing the tab — or a phone quietly dropping it to free memory — doesn't lose your work.
+
+All of it lives in the browser's own storage on that one device. Nothing is uploaded, and
+clearing your browsing data clears the decks too.
+
 ## Photographing your cards
 
-**Two columns per picture.** Lay the cards in two overlapping columns, so only each
-name strip shows, and fill the frame with them. About 15 cards a column is 30 cards
-a picture, so a Commander deck is four pictures.
+The built-in reader is a fallback. On real photographs it recovers roughly half the names,
+so expect to fix some by hand.
 
-The column count is the thing that matters, because it sets how wide each card is in
-the photo and therefore how big its name is. Be warned that this is reasoning, not a
-measurement: it has only been checked on generated test pictures, which turned out to
-flatter every change tried against them. On one real photograph of four columns the
-app recovered 20 names of the 43 a person can read in it.
+**Fill the frame with cards.** Get close enough that they reach the edges of the picture,
+with no spare table around them. That is the thing that matters. It is tempting to think
+the number of columns matters, but it was measured on two real photos and it does not:
+two columns and four columns produced card names exactly the same size, 21 pixels tall in
+both, because both pictures left about half the frame empty.
 
 **Use the original photo**, straight from the camera roll. A screenshot, or a picture
 that has been through a chat app, has already been shrunk to a fraction of its
-detail, and no amount of work at this end puts that back. Press
-**Read cards from photos**, and either take the pictures or choose several
-you have already taken; the app reads them one after another and puts everything
-into one list to tick off.
+detail, and no amount of work at this end puts that back.
 
-It reads the text with [Tesseract](https://tesseract.projectnaptha.com/), which
-runs inside your phone rather than sending your photo anywhere. Tesseract gets
-most of each name but garbles the odd letter, so every line it finds is checked
-against Scryfall's fuzzy name search — "Lianowar Elve" comes back as Llanowar
-Elves, and nonsense finds nothing and is dropped. You then tick off anything it
-got wrong before the cards are added to your list.
-
-If any of the cards it finds are legendary creatures or planeswalkers, it asks
-which one is your commander before adding them, and writes that into the list
-under a `Commander` heading. A photo carries no such heading of its own, and the
-advice for a Commander deck depends on knowing the commander.
-
-What helps: even light, no glare on the card faces, the camera straight on rather
-than at an angle, and filling the frame with that part of the deck.
-
-The first photo you take needs an internet connection, because the text reader
-downloads itself once (a few megabytes). After that it is cached.
+Press **Read cards from photos**, and either take the pictures or choose several you have
+already taken; the app reads them one after another and puts everything into one list to
+tick off before it joins your decklist.
 
 ## A note on the suggestions
 
