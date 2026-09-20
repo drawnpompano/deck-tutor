@@ -73,10 +73,10 @@ name strip shows, and fill the frame with them. About 15 cards a column is 30 ca
 a picture, so a Commander deck is four pictures.
 
 The column count is the thing that matters, because it sets how wide each card is in
-the photo and therefore how big its name is. Measured end to end on mock photos of
-this exact layout: two columns read 29 names of 34, three columns 30 of 36, four
-columns 25 of 36. The same photos through the previous version of the app read 1,
-11 and 11.
+the photo and therefore how big its name is. Be warned that this is reasoning, not a
+measurement: it has only been checked on generated test pictures, which turned out to
+flatter every change tried against them. On one real photograph of four columns the
+app recovered 20 names of the 43 a person can read in it.
 
 **Use the original photo**, straight from the camera roll. A screenshot, or a picture
 that has been through a chat app, has already been shrunk to a fraction of its
