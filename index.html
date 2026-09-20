@@ -260,8 +260,13 @@ footer a{color:var(--gold)}
       <a href="https://claude.ai/artifact/8MksLkDHfPR9U4w1moAVvC" target="_blank" rel="noopener">the camera scanner</a>,
       then copy what it gives you and paste it below. It reads the card names, so cards
       stacked with only their titles showing are fine.</p>
-    <p class="routeline muted">You don't have to. If you already have a list, or only want to
-      add a few cards, skip straight to the box below.</p>
+    <p class="routeline"><b>Cards loose and face up?</b>
+      <a href="https://www.manabox.app" target="_blank" rel="noopener">ManaBox</a> and
+      <a href="https://sortswift.com" target="_blank" rel="noopener">SortSwift</a> are free phone
+      scanners that read the card picture and get every name, but they have to see the front of
+      each card. Scan, export, then paste the list below or use <b>Open a file</b>.</p>
+    <p class="routeline muted">You don't have to use any of them. If you already have a list, or
+      only want to add a few cards, skip straight to the box below.</p>
   </div>
 
   <!-- Route 2: the list itself, which is what the app actually runs on -->
@@ -282,6 +287,8 @@ footer a{color:var(--gold)}
   <div class="row">
     <button class="btn" id="analyzeBtn">Scan deck</button>
     <button class="btn ghost" id="sampleBtn">Load an example</button>
+    <button class="btn ghost" id="fileBtn">Open a file</button>
+    <input type="file" id="listfile" accept=".txt,.csv,.dec,text/plain,text/csv" hidden>
     <label class="check"><input type="checkbox" id="budget"> Budget picks only (under $8)</label>
   </div>
 
@@ -326,7 +333,7 @@ footer a{color:var(--gold)}
   <a href="https://edhrec.com" target="_blank" rel="noopener">EDHREC</a> directly where it allows it.
   Every card links out to those sites so you can read the wider discussion yourself.
   Unofficial fan tool; not affiliated with or endorsed by Wizards of the Coast.
-  <br><span class="ver">Version 7</span>
+  <br><span class="ver">Version 8</span>
 </footer>
 </div>
 
@@ -426,6 +433,43 @@ function saveDeck(){
   $('deckTitle').value = title;
   note.textContent = (at >= 0 ? 'Updated ' : 'Saved ') + '“' + title + '”.';
   setTimeout(() => { note.textContent = ''; }, 4000);
+}
+
+// A ManaBox or SortSwift export arrives as a file, and copying text out of a file on a
+// phone is awkward, so let the user hand the file straight over. parseDeck already reads
+// both the plain-text and comma-separated shapes.
+// A picked file could be anything on the phone, and overwriting the box with a shopping
+// list would be worse than refusing. Every real export carries a Name column or a quantity
+// at the start of each line, so ask for one of those.
+function looksLikeDeckFile(text){
+  const rows = text.split(/\r?\n/).filter(l => l.trim());
+  if (rows.length > 1 && parseCsvDeck(rows)) return true;
+  const lines = rows.filter(l => !/^(\/\/|#)/.test(l.trim()) && !SECTION.test(l.trim()));
+  if (!lines.length) return false;
+  const withQty = lines.filter(l => /^\s*\d+\s*[xX]?\s+\S/.test(l)).length;
+  return withQty >= Math.ceil(lines.length / 2);
+}
+
+function openListFile(file){
+  const note = $('saveNote');
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onerror = () => { note.textContent = "Couldn't read that file."; };
+  reader.onload = () => {
+    const text = String(reader.result || '').trim();
+    if (!text){ note.textContent = 'That file was empty.'; return; }
+    if (!looksLikeDeckFile(text)){
+      note.textContent = "That file didn't look like a card list, so nothing was changed.";
+      return;
+    }
+    const found = countCards(text);
+    $('decklist').value = text;
+    if (!$('deckTitle').value.trim()) $('deckTitle').value = file.name.replace(/\.[^.]+$/, '');
+    keepDraft();
+    note.textContent = 'Opened ' + found + (found === 1 ? ' card.' : ' cards.');
+    setTimeout(() => { note.textContent = ''; }, 4000);
+  };
+  reader.readAsText(file);
 }
 
 function loadDeck(id){
@@ -567,7 +611,9 @@ function csvCells(line){
     "1 Ragavan, Nimble Pilferer" has a comma in it but no heading called "name". */
 function parseCsvDeck(lines){
   const head = csvCells(lines[0]).map(h => h.toLowerCase());
-  const nameAt = head.findIndex(h => h === 'name' || h === 'card name' || h === 'card');
+  // Different exporters label the same column differently; SortSwift's seller-shaped CSVs
+  // say "title" or "product name" where ManaBox says "name".
+  const nameAt = head.findIndex(h => /^(name|card ?name|card|title|product ?name)$/.test(h));
   if (nameAt < 0) return null;
   const qtyAt = head.findIndex(h => /^(quantity|qty|count|amount)$/.test(h));
   const entries = [];
@@ -1453,6 +1499,11 @@ $('sampleBtn').addEventListener('click', () => {
   keepDraft();
 });
 $('saveBtn').addEventListener('click', saveDeck);
+$('fileBtn').addEventListener('click', () => $('listfile').click());
+$('listfile').addEventListener('change', e => {
+  openListFile(e.target.files && e.target.files[0]);
+  e.target.value = '';                      // so the same file can be picked twice
+});
 $('decklist').addEventListener('input', keepDraft);
 $('deckTitle').addEventListener('input', keepDraft);
 $('deckTitle').addEventListener('keydown', e => { if (e.key === 'Enter') saveDeck(); });

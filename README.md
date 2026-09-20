@@ -71,15 +71,27 @@ It then behaves like a normal app: its own icon, no browser bar.
 The first tab shows three ways to do one thing: fill the decklist box. They are in order
 of how well they work.
 
-**1. Scan the cards with a camera scanner.** The link at the top opens a scanner that reads
-card *names*, so a pile stacked with only the titles showing works as it is. Copy what it
-gives you and paste it into the box.
+**1. Scan the cards somewhere better, then bring the list back.** The top section links to
+three scanners, because they suit different piles:
+
+- **The camera scanner** reads card *names*, so a pile stacked with only the titles showing
+  works as it is. Copy what it gives you and paste it into the box.
+- **ManaBox** and **SortSwift** are free phone apps that recognise the card picture. They are
+  quicker and they get every name, but they have to see the front of each card, so they are
+  for loose cards rather than a stack. Scan, export, then paste the list in or hand the
+  exported file to **Open a file**.
 
 **2. Paste a list you already have.** This is the box everything else feeds. One card per
 line, like `1 Sol Ring` or `4x Lightning Bolt`. Exports from Moxfield, Archidekt, MTG Arena,
 ManaBox and SortSwift paste straight in, as plain text or as the comma-separated file —
 read by its heading row, so the column order doesn't matter. Set codes, collector numbers
 and foil marks are stripped.
+
+**Open a file** does the same job without the copying, which matters on a phone where an
+export lands as a file rather than on the clipboard. It takes `.txt`, `.csv` and `.dec`, names
+the deck after the file, and refuses anything that doesn't read like a card list rather than
+overwriting what you already had. A file counts as a card list if it has a `Name` column or if
+most of its lines start with a quantity — which every real export does.
 
 **3. Read a few cards from a photo.** The built-in reader, for **1 to 15 cards** you'd
 rather not type. It is a convenience, not a way to get a whole deck in: measured across
